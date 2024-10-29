@@ -6,29 +6,23 @@ Time series analysis is a useful tool to examine the characteristics of Bitcoin 
 
 ## **Preprocessing Method:**
 
-- **Data loading:** The bitcoin [dataset](https://drive.google.com/file/d/16MgiuBfQKzXPoWFWi2w-LKJuZ7LgivpE/view) used was loaded from a CSV file containing a 1-minute interval data.
-- **Checking and handling missing data:** Realizing the dataset had over 106503 missing values in all the columns except for the timestamp column. The missing data was handled using the fill-forward method. This method was used because it maintains the continuity of the data. It assumes that the last known price is a reasonable estimate for subsequent time points since the prices do not change drastically from one minute to the next.
+- **Data loading:** The bitcoin [dataset](https://www.kaggle.com/datasets/nisargchodavadiya/bitcoin-time-series-with-different-time-intervals?select=BTC-USD-15-MIN.csv) used was loaded from a CSV file containing a 15 minute interval data.
+- **Checking and handling missing data:** The dataset had no missing values.
 - **Timestamp conversion:** The timestamp column was in the Unix time format which is used in computing but yet it was difficult to be read. Thus, it was converted to a more human-readable datetime format. The timestamp column was converted to a datetime type and set it as the index.
 - **Feature Selection:** We focus on the 'Close' price as the target variable for prediction.
 - **Normalisation:** We apply min-max scaling to normalize the price data to a range of [0, 1].
 
 ```python
-df = pd.read_csv("coinbaseUSD_1-min_data_2014-12-01_to_2019-01-09.csv")
-
-#Forward-fill
-df.fillna(method='ffill', inplace=True)
+df = df = pd.read_csv("BTC-USD-15-MIN.csv")
 
 # Converting the 'Timestamp' from Unix time to a readable datetime format
-df['Datetime'] = pd.to_datetime(df['Timestamp'], unit='s', utc=True)
+df['Datetime'] = pd.to_datetime(df['Datetime'], utc=True)
 
 # Removing timezone info
 df['Datetime'] = df['Datetime'].dt.tz_convert(None)
 
 # Set 'Datetime' as the index of the DataFrame
 df.set_index('Datetime', inplace=True)
-
-# Drop the original 'Timestamp' column
-df.drop('Timestamp', axis=1, inplace=True)
 
 # select close price
 close_prices = df['Close'].values.reshape(-1, 1)
@@ -64,14 +58,23 @@ train_size = int(len(X) * 0.8)
 X_train, X_test = X[:train_size], X[train_size:]
 y_train, y_test = y[:train_size], y[train_size:]
 
-train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-test_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
-
+# Using tf.data.Dataset with shuffling and better batching
 batch_size = 32
-train_dataset = train_dataset.batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
-test_dataset = test_dataset.batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
-```
+buffer_size = 1000
 
+train_dataset = (
+    tf.data.Dataset.from_tensor_slices((X_train, y_train))
+    .shuffle(buffer_size)
+    .batch(batch_size)
+    .prefetch(tf.data.experimental.AUTOTUNE)
+)
+
+test_dataset = (
+    tf.data.Dataset.from_tensor_slices((X_test, y_test))
+    .batch(batch_size)
+    .prefetch(tf.data.experimental.AUTOTUNE)
+)
+```
 
 Importance of the above techniques in time series data:
 - Batching allows for processing multiple data points simultaneously, improving computational efficiency and reducing training time.
@@ -86,7 +89,9 @@ A stacked LSTM network was used, and this is because:
 ```python
 model = Sequential([
     LSTM(50, activation='relu', return_sequences=True, input_shape=(time_steps, 1)),
+    Dropout(0.2),
     LSTM(50, activation='relu'),
+    Dropout(0.2),
     Dense(1)
 ])
 
@@ -97,6 +102,7 @@ model.summary()
 - LSTM networks are well-suited for sequence prediction tasks and can capture long-term dependencies in time series data.
 - The two LSTM layers allow the model to learn more complex patterns.
 - ReLU activation helps mitigate the vanishing gradient problem.
+- Dropout layer help to mitigate overfitting by randomly setting 20% of layer outputs to zero during training.
 - Adam optimizer adapts the learning rate during training for better convergence.
 
 
@@ -104,22 +110,32 @@ model.summary()
 
 After training the model, we achieved the following performance metrics:
 
-- Train MSE: 0.1530
+- Train MSE: 0.0003
 
-- Test MSE: 0.0123
+- Test MSE: 0.0002
 
-- Mean Absolute Error (MAE): $62.90
+- Mean Absolute Error (MAE): 285.36
 
-- Root Mean Square Error (RMSE): $83.51
+- Root Mean Square Error (RMSE): 366.72
 
 Here is a visualization of the model's predictions compared to the actual Bitcoin prices:
 
-![Alternate Text](btc_price_prediction.png)
+![Alternate Text](btc_price_prediction_1.png)
 
 
 Insights from the BTC Price Prediction plot:
 
-- The plot shows that the model had difficulty capturing the general trend of Bitcoin prices over the period, as observed from the predicted prices (orange line) being constant throughout as compared to the actual prices (blue line) that have been fluctuating. This indicates that the **LSTM model may not have effectively learned** from the historical data. This likely results from **using only 4 epochs for training, which limited the model's ability to learn patterns** effectively. 
+- The plot shows that the model captured the general trend of Bitcoin prices over the period, as observed from the predicted prices (orange line) fluctuating and relatively close to the actual price (blue line). This indicates that the **LSTM model has effectively learned** from the historical data.
+
+
+Another LSTM model was created with the tanh activation function and the dropout was increased to 30% and the model performed relatively well as compared to model 1 which made use of the relu activation function.
+
+
+Here is a visualization of the model 2 predictions compared to the actual Bitcoin prices:
+
+![Alternate Text](btc_price_prediction_2.png)
+
+- The plot shows that model 2 effectively captured the general trend of Bitcoin prices over the period
 
 
 ## Conclusion
@@ -128,11 +144,9 @@ This project has been both rewarding and challenging at thesame time. This proje
 
 - **Challenges encountered:**
   - High volatility of Bitcoin prices makes accurate prediction difficult.
-  - Complex models like LSTM require careful tuning and may overfit or underfit the data.
-  - Training deep learning models can be resource-intensive, limiting the ability to experiment with different architectures
-  - Required alot of time for training.
+  - Complex models like LSTM require careful tuning.
+  - Training deep learning models can be resource-intensive, limiting the ability to experiment with different architectures.
 
 - **Potential & future work:**
-  - Experimenting with different architectures like GRU
-  - Optimizing hyperparameters
-  - Increasing the number of epochs used in the training to enable the model to learn better from the data, balancing computation time with performance.
+  - Experimenting with different architectures like GRU.
+  - Optimizing hyperparameters.
